@@ -1,0 +1,1 @@
+"""Hardware-facing service layer."""

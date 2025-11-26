@@ -33,7 +33,7 @@ class WorkerBridge:
     async def start_camera_worker(self, camera_config: Dict[str, Any]) -> None:
         spec = WorkerSpec(
             name="basler_camera",
-            target="backend.app.worker.workers.camera_worker:run",
+            target="app.worker.workers.camera_worker:run",
             config=camera_config,
         )
         await self._manager.start_worker(spec)
@@ -43,6 +43,8 @@ class WorkerBridge:
 
     async def _handle_payload(self, payload: WorkerPayload) -> None:
         topic = f"worker/{payload.worker}/{payload.payload_type}"
+        if payload.payload_type.value == "frame":
+            logger.debug("worker_frame_received", worker=payload.worker, data_len=len(payload.data))
         await self._event_bus.publish(topic, payload)
 
     async def _health_check_task(self):

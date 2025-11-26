@@ -7,6 +7,7 @@ import RobotCommandConsole from "./components/robot/RobotCommandConsole";
 import BotaFeedback from "./components/sensors/BotaFeedback";
 import JointManualControl from "./components/robot/JointManualControl";
 import SettingsPanel from "./components/robot/SettingsPanel";
+import PdxcControl from "./components/robot/PdxcControl";
 
 export default function App() {
   const heartbeat = useChannel("telemetry/realtime");
@@ -68,6 +69,7 @@ export default function App() {
             </section>
             <section className="panel">
               <BotaFeedback />
+              <PdxcControl />
             </section>
             <section className="panel">
               <JointManualControl />

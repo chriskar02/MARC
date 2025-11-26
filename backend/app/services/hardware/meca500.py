@@ -228,6 +228,47 @@ class Meca500Controller:
             logger.error("meca500_custom_command_failed", command=command, error=str(e))
             return None
 
+    async def set_valve(self, bank: int, pin: int, state: bool) -> bool:
+        """
+        Control pneumatic valve (GPIO output).
+        
+        Args:
+            bank: GPIO bank number (1-3)
+            pin: GPIO pin number (1-16)
+            state: True for open/on, False for close/off
+        
+        Returns:
+            True if command successful
+        """
+        try:
+            # SetIO(bank, pin, state)
+            await asyncio.to_thread(self.robot.SetIO, bank, pin, state)
+            logger.info("meca500_valve_set", bank=bank, pin=pin, state=state)
+            return True
+        except Exception as e:
+            logger.error("meca500_valve_set_failed", bank=bank, pin=pin, state=state, error=str(e))
+            return False
+
+    async def get_valve_state(self, bank: int, pin: int) -> Optional[bool]:
+        """
+        Read pneumatic valve state (GPIO input/output).
+        
+        Args:
+            bank: GPIO bank number (1-3)
+            pin: GPIO pin number (1-16)
+        
+        Returns:
+            True if open/on, False if closed/off, None on error
+        """
+        try:
+            # GetIO(bank, pin) returns the state
+            state = await asyncio.to_thread(self.robot.GetIO, bank, pin)
+            logger.debug("meca500_valve_state_read", bank=bank, pin=pin, state=state)
+            return bool(state)
+        except Exception as e:
+            logger.error("meca500_valve_state_failed", bank=bank, pin=pin, error=str(e))
+            return None
+
     async def _register_callbacks(self) -> None:
         """Register callback handlers for robot state changes."""
         callbacks = mdr.RobotCallbacks()

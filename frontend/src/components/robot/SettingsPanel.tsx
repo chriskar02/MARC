@@ -26,6 +26,11 @@ export default function SettingsPanel() {
   const [networkAdapters, setNetworkAdapters] = useState<NetworkAdapter[]>([]);
   const [selectedAdapter, setSelectedAdapter] = useState<string>("");
   const [mecaAddress, setMecaAddress] = useState<string>("192.168.0.100");
+  const [selectedCamera, setSelectedCamera] = useState<string>("basler_camera");
+  const [availableCameras] = useState<Array<{ id: string; name: string }>>([
+    { id: "basler_camera", name: "Basler Camera" },
+    // Add more cameras here as they become available
+  ]);
 
   // Use persistent device store
   const meca500Status = useDeviceStore((state) => state.meca500Status);
@@ -95,6 +100,28 @@ export default function SettingsPanel() {
       <h2>Device Settings & Configuration</h2>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "1.5rem" }}>
+        {/* Camera Selection */}
+        <div style={{ borderRight: "1px solid #30363d", paddingRight: "1rem" }}>
+          <h3 style={{ fontSize: "0.95rem", color: "#58a6ff", marginBottom: "1rem" }}>Camera</h3>
+          <div className="control-group">
+            <label>Select Camera</label>
+            <select value={selectedCamera} onChange={(e) => setSelectedCamera(e.target.value)}>
+              {availableCameras.map((camera) => (
+                <option key={camera.id} value={camera.id}>
+                  {camera.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="status-display" style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "#8b949e" }}>
+            {selectedCamera === "basler_camera" ? (
+              <div>✓ Basler camera selected and streaming</div>
+            ) : (
+              <div>Camera: {selectedCamera}</div>
+            )}
+          </div>
+        </div>
+
         {/* XY Motors */}
         <div style={{ borderRight: "1px solid #30363d", paddingRight: "1rem" }}>
           <h3 style={{ fontSize: "0.95rem", color: "#58a6ff", marginBottom: "1rem" }}>XY Stage Motors</h3>

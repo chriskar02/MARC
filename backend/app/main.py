@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -14,6 +15,7 @@ from .core.config import Settings, get_settings
 from .core.event_bus import EventBus
 from .core.realtime import RealTimeCoordinator, RealtimeTaskConfig
 from .deps import get_event_bus, get_realtime_coordinator
+from .services.bridges.worker_bridge import WorkerBridge
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +47,22 @@ async def lifespan(app: FastAPI):
         ),
         coroutine_factory=_telemetry_task_factory(event_bus),
     )
+    
+    # Initialize worker bridge and start camera worker
+    worker_bridge = WorkerBridge(event_bus)
+    await worker_bridge.attach_coordinator(coordinator)
+    print("[Main] Starting camera worker...")
+    await worker_bridge.start_camera_worker({"fps": 30})
+    print("[Main] Camera worker started")
+    
     app.state.settings = settings
     app.state.event_bus = event_bus
     app.state.coordinator = coordinator
+    app.state.worker_bridge = worker_bridge
     try:
         yield
     finally:
+        await worker_bridge.shutdown()
         await coordinator.stop()
 
 
@@ -109,8 +121,32 @@ def create_app() -> FastAPI:
 
     @application.websocket("/ws/camera/{worker_name}")
     async def websocket_camera(websocket: WebSocket, worker_name: str) -> None:
-        # TODO: Implement camera worker integration
-        await websocket.close(code=1000, reason="Camera worker not yet implemented")
+        await websocket.accept()
+        event_bus: EventBus = application.state.event_bus
+        try:
+            async for payload in event_bus.subscribe(f"worker/{worker_name}/frame"):
+                # Encode frame data as base64 for JSON transmission
+                frame_data = base64.b64encode(payload.data).decode("utf-8")
+                message = {
+                    "topic": f"worker/{worker_name}/frame",
+                    "payload": {
+                        "data": frame_data,
+                        "metadata": payload.metadata or {},
+                        "sequence_id": payload.sequence_id,
+                        "timestamp": payload.monotonic_ts,
+                    },
+                }
+                try:
+                    await websocket.send_json(message)
+                except Exception:
+                    break  # Client disconnected, exit gracefully
+        except Exception as exc:
+            logger.error("ws_camera_error", error_msg=str(exc))
+        finally:
+            try:
+                await websocket.close()
+            except Exception:
+                pass  # Already closed
 
     return application
 

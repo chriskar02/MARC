@@ -57,7 +57,7 @@ class WorkerProcessManager:
         )
         process.start()
         monitor_task = asyncio.create_task(self._monitor_worker(spec.name, channels))
-        worker = WorkerProcess(spec=spec, process=process, channels=channels, monitor_task=monitor_task)
+        worker = WorkerProcess(spec=spec, process=process, channels=channels, monitor_task=monitor_task, last_heartbeat=time.time())
         self._workers[spec.name] = worker
         logger.info("worker_started", worker=spec.name, pid=process.pid)
 
@@ -104,6 +104,14 @@ class WorkerProcessManager:
 
 
 def _worker_bootstrap(target_path: str, control_conn, data_queue, config: dict) -> None:
+    import sys
+    import os
+    
+    # Add parent directory to path so subprocess can find 'app' module
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if backend_dir not in sys.path:
+        sys.path.insert(0, backend_dir)
+    
     module_path, func_name = target_path.split(":")
     module = importlib.import_module(module_path)
     target = getattr(module, func_name)

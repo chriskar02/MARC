@@ -140,6 +140,18 @@ async def device_control(
         joints = await meca500.get_joints()
         return {"status": "joints_zeroed", "joints": joints} if success else {"error": "Zero joints failed"}
     
+    elif "meca500_valve_open" in cmd.command:
+        bank = getattr(cmd, "bank", 1)
+        pin = getattr(cmd, "pin", 1)
+        success = await meca500.set_valve(bank, pin, True)
+        return {"valve_state": True, "bank": bank, "pin": pin} if success else {"error": "Valve open failed"}
+    
+    elif "meca500_valve_close" in cmd.command:
+        bank = getattr(cmd, "bank", 1)
+        pin = getattr(cmd, "pin", 1)
+        success = await meca500.set_valve(bank, pin, False)
+        return {"valve_state": False, "bank": bank, "pin": pin} if success else {"error": "Valve close failed"}
+    
     elif "meca500_connect" in cmd.command:
         # Allow overriding address from command payload
         if hasattr(cmd, "address"):

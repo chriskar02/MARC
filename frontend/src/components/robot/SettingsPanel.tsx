@@ -26,10 +26,16 @@ export default function SettingsPanel() {
   const [networkAdapters, setNetworkAdapters] = useState<NetworkAdapter[]>([]);
   const [selectedAdapter, setSelectedAdapter] = useState<string>("");
   const [mecaAddress, setMecaAddress] = useState<string>("192.168.0.100");
-  const [selectedCamera, setSelectedCamera] = useState<string>("basler_camera");
+  const [overheadCamera, setOverheadCamera] = useState<string>("overhead_camera");
+  const [laserCamera, setLaserCamera] = useState<string>("laser_camera");
+  const [macroCamera, setMacroCamera] = useState<string>("macro_camera");
+  const [pickupCamera, setPickupCamera] = useState<string>("pickup_camera");
   const [availableCameras] = useState<Array<{ id: string; name: string }>>([
+    { id: "overhead_camera", name: "Overhead Camera" },
+    { id: "laser_camera", name: "Laser Camera" },
+    { id: "macro_camera", name: "Macro Camera" },
+    { id: "pickup_camera", name: "Pickup Camera" },
     { id: "basler_camera", name: "Basler Camera" },
-    // Add more cameras here as they become available
   ]);
 
   // Use persistent device store
@@ -102,10 +108,11 @@ export default function SettingsPanel() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "1.5rem" }}>
         {/* Camera Selection */}
         <div style={{ borderRight: "1px solid #30363d", paddingRight: "1rem" }}>
-          <h3 style={{ fontSize: "0.95rem", color: "#58a6ff", marginBottom: "1rem" }}>Camera</h3>
+          <h3 style={{ fontSize: "0.95rem", color: "#58a6ff", marginBottom: "1rem" }}>Cameras</h3>
+          
           <div className="control-group">
-            <label>Select Camera</label>
-            <select value={selectedCamera} onChange={(e) => setSelectedCamera(e.target.value)}>
+            <label>Overhead Camera</label>
+            <select value={overheadCamera} onChange={(e) => setOverheadCamera(e.target.value)}>
               {availableCameras.map((camera) => (
                 <option key={camera.id} value={camera.id}>
                   {camera.name}
@@ -113,12 +120,38 @@ export default function SettingsPanel() {
               ))}
             </select>
           </div>
-          <div className="status-display" style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "#8b949e" }}>
-            {selectedCamera === "basler_camera" ? (
-              <div>✓ Basler camera selected and streaming</div>
-            ) : (
-              <div>Camera: {selectedCamera}</div>
-            )}
+
+          <div className="control-group">
+            <label>Laser Camera</label>
+            <select value={laserCamera} onChange={(e) => setLaserCamera(e.target.value)}>
+              {availableCameras.map((camera) => (
+                <option key={camera.id} value={camera.id}>
+                  {camera.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="control-group">
+            <label>Macro Camera</label>
+            <select value={macroCamera} onChange={(e) => setMacroCamera(e.target.value)}>
+              {availableCameras.map((camera) => (
+                <option key={camera.id} value={camera.id}>
+                  {camera.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="control-group">
+            <label>Pickup Camera</label>
+            <select value={pickupCamera} onChange={(e) => setPickupCamera(e.target.value)}>
+              {availableCameras.map((camera) => (
+                <option key={camera.id} value={camera.id}>
+                  {camera.name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

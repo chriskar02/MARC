@@ -2,7 +2,8 @@ import { useState } from "react";
 import CameraStream from "./components/camera/CameraStream";
 import TelemetryPanel from "./components/plots/TelemetryPanel";
 import { useChannel } from "./hooks/useChannel";
-import XYMotorControl from "./components/motors/XYMotorControl";
+import WaferControl from "./components/motors/WaferControl";
+import LaserControl from "./components/motors/LaserControl";
 import RobotCommandConsole from "./components/robot/RobotCommandConsole";
 import BotaFeedback from "./components/sensors/BotaFeedback";
 import JointManualControl from "./components/robot/JointManualControl";
@@ -11,7 +12,7 @@ import PdxcControl from "./components/robot/PdxcControl";
 
 export default function App() {
   const heartbeat = useChannel("telemetry/realtime");
-  const [activeTab, setActiveTab] = useState<"base" | "robot" | "settings">("base");
+  const [activeTab, setActiveTab] = useState<"wafer" | "laser" | "robot" | "settings">("wafer");
 
   return (
     <div className="app-shell">
@@ -33,10 +34,16 @@ export default function App() {
 
       <nav className="app-nav">
         <button
-          className={`nav-btn ${activeTab === "base" ? "active" : ""}`}
-          onClick={() => setActiveTab("base")}
+          className={`nav-btn ${activeTab === "wafer" ? "active" : ""}`}
+          onClick={() => setActiveTab("wafer")}
         >
-          XY Base Control
+          Wafer Control
+        </button>
+        <button
+          className={`nav-btn ${activeTab === "laser" ? "active" : ""}`}
+          onClick={() => setActiveTab("laser")}
+        >
+          Laser Control
         </button>
         <button
           className={`nav-btn ${activeTab === "robot" ? "active" : ""}`}
@@ -52,11 +59,20 @@ export default function App() {
         </button>
       </nav>
 
-      {activeTab === "base" && (
+      {activeTab === "wafer" && (
         <main className="main-content">
           <div className="grid-2col">
-            <XYMotorControl />
-            <CameraStream workerName="basler_camera" />
+            <WaferControl />
+            <CameraStream workerName="overhead_camera" />
+          </div>
+        </main>
+      )}
+
+      {activeTab === "laser" && (
+        <main className="main-content">
+          <div className="grid-2col">
+            <LaserControl />
+            <CameraStream workerName="laser_camera" />
           </div>
         </main>
       )}

@@ -7,7 +7,7 @@ interface MotorStatus {
   y_velocity?: number;
 }
 
-export default function XYMotorControl() {
+export default function WaferControl() {
   const [xPos, setXPos] = useState(0);
   const [yPos, setYPos] = useState(0);
   const [xVel, setXVel] = useState(10);
@@ -18,7 +18,7 @@ export default function XYMotorControl() {
   const sendCommand = async (command: string, axis: string, value: number) => {
     setLoading(true);
     try {
-      const response = await fetch("/api/commands/motors/xy", {
+      const response = await fetch("/api/commands/motors/xy_wafer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command, axis, value }),
@@ -36,7 +36,7 @@ export default function XYMotorControl() {
 
   return (
     <section className="panel">
-      <h2>XY Base Motor Control</h2>
+      <h2>Wafer XY Control</h2>
 
       <div className="control-group">
         <label>X Axis Position (mm)</label>
@@ -99,10 +99,10 @@ export default function XYMotorControl() {
 
       {status && (
         <div className="status-display">
-          <div>X Position: {status.x_position.toFixed(3)} mm</div>
-          <div>Y Position: {status.y_position.toFixed(3)} mm</div>
-          {status.x_velocity !== undefined && <div>X Velocity: {status.x_velocity.toFixed(2)} mm/s</div>}
-          {status.y_velocity !== undefined && <div>Y Velocity: {status.y_velocity.toFixed(2)} mm/s</div>}
+          <p>X: {status.x_position.toFixed(2)} mm</p>
+          <p>Y: {status.y_position.toFixed(2)} mm</p>
+          {status.x_velocity !== undefined && <p>X Vel: {status.x_velocity.toFixed(1)} mm/s</p>}
+          {status.y_velocity !== undefined && <p>Y Vel: {status.y_velocity.toFixed(1)} mm/s</p>}
         </div>
       )}
     </section>

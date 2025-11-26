@@ -1,4 +1,4 @@
-# Precision Control Desktop Stack
+# MARC: MATEL Automated Robot Control
 
 A FastAPI + React + Electron platform for millisecond-level control of precision hardware (Standa motors, Meca500, Bota F/T, Thorlabs PDXC2, Basler cameras, MCWHL5/LH501).
 

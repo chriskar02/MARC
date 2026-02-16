@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import RobotToolControl from "./RobotToolControl";
 
 interface CommandResponse {
   robot?: string;
@@ -97,23 +98,29 @@ export default function RobotCommandConsole() {
 
       <div className="control-group">
         <label>Command</label>
-        <input
-          type="text"
+        <textarea
           value={command}
           onChange={(e) => setCommand(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Enter command..."
-          disabled={loading}
+          placeholder="Enter Meca500 command..."
+          rows={3}
         />
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button onClick={sendCommand} disabled={loading || !command.trim()}>
+            {loading ? "Sending..." : "Send"}
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={() => setCommand("")}
+            disabled={loading || !command}
+          >
+            Clear
+          </button>
+        </div>
       </div>
 
-      <div className="control-group">
-        <button onClick={sendCommand} disabled={loading || !command.trim()}>
-          {loading ? "Sending..." : "Send"}
-        </button>
-        <button onClick={() => setHistory([])} className="btn-secondary">
-          Clear History
-        </button>
+      <div style={{ marginBottom: "1rem" }}>
+        <RobotToolControl />
       </div>
 
       {/* Pneumatic Valve Controls */}

@@ -120,6 +120,55 @@ class Meca500Controller:
             logger.error("meca500_move_joints_failed", error=str(e), joints=[j1, j2, j3, j4, j5, j6])
             return False
 
+    async def move_to_pose(self, x: float, y: float, z: float, alpha: float, beta: float, gamma: float) -> bool:
+        """Move tool tip to a Cartesian pose. Uses robot.MovePose if available, otherwise falls back to SendCustomCommand."""
+        try:
+            move_fn = getattr(self.robot, "MovePose", None)
+            if callable(move_fn):
+                await asyncio.to_thread(move_fn, x, y, z, alpha, beta, gamma)
+            else:
+                # Fallback: send custom command string (device-specific)
+                cmd = f"MovePose {x} {y} {z} {alpha} {beta} {gamma}"
+                await asyncio.to_thread(self.robot.SendCustomCommand, cmd)
+            logger.debug("meca500_move_to_pose", pose=[x, y, z, alpha, beta, gamma])
+            return True
+        except Exception as e:
+            logger.error("meca500_move_to_pose_failed", error=str(e), pose=[x, y, z, alpha, beta, gamma])
+            return False
+
+    async def move_tool_delta(self, dx: float, dy: float, dz: float, target_orientation: Optional[dict] = None) -> bool:
+        """Move the tool tip by a relative delta in Cartesian coordinates.
+
+        If `target_orientation` provided, it should be a dict with alpha/beta/gamma.
+        """
+        try:
+            pose = await self.get_pose()
+            if not pose:
+                logger.error("meca500_move_tool_delta_no_pose")
+                return False
+
+            nx = pose["x"] + dx
+            ny = pose["y"] + dy
+            nz = pose["z"] + dz
+            alpha = target_orientation.get("alpha", pose.get("alpha", 0)) if target_orientation else pose.get("alpha", 0)
+            beta = target_orientation.get("beta", pose.get("beta", 0)) if target_orientation else pose.get("beta", 0)
+            gamma = target_orientation.get("gamma", pose.get("gamma", 0)) if target_orientation else pose.get("gamma", 0)
+
+            return await self.move_to_pose(nx, ny, nz, alpha, beta, gamma)
+        except Exception as e:
+            logger.error("meca500_move_tool_delta_failed", error=str(e))
+            return False
+
+    async def move_to_shipping(self) -> bool:
+        """Move robot to a predefined shipping joint configuration."""
+        # Default shipping joints — adjust to real robot preferred safe pose
+        SHIPPING_JOINTS = [0.0, -90.0, 45.0, 0.0, 0.0, 0.0]
+        try:
+            return await self.move_joints(*SHIPPING_JOINTS)
+        except Exception as e:
+            logger.error("meca500_move_to_shipping_failed", error=str(e))
+            return False
+
     async def zero_all_joints(self) -> bool:
         """Move all joints to zero position (home configuration)."""
         try:

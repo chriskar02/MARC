@@ -139,6 +139,29 @@ async def device_control(
         success = await meca500.zero_all_joints()
         joints = await meca500.get_joints()
         return {"status": "joints_zeroed", "joints": joints} if success else {"error": "Zero joints failed"}
+    elif "meca500_move_joints" in cmd.command:
+        # Expecting `angles` list in payload
+        angles = getattr(cmd, "angles", None)
+        if not angles or len(angles) != 6:
+            return {"error": "Invalid angles payload"}
+        success = await meca500.move_joints(*angles)
+        joints = await meca500.get_joints()
+        return {"moved": success, "joints": joints} if success else {"error": "Move joints failed"}
+
+    elif "meca500_move_shipping" in cmd.command:
+        success = await meca500.move_to_shipping()
+        status = await meca500.get_status()
+        return {"moved": success, **status} if success else {"error": "Move to shipping failed"}
+
+    elif "meca500_move_tool_delta" in cmd.command:
+        # Expecting dx, dy, dz and optional targetOrientation
+        dx = getattr(cmd, "dx", 0)
+        dy = getattr(cmd, "dy", 0)
+        dz = getattr(cmd, "dz", 0)
+        target_orientation = getattr(cmd, "targetOrientation", None)
+        success = await meca500.move_tool_delta(float(dx), float(dy), float(dz), target_orientation)
+        status = await meca500.get_status()
+        return {"moved": success, **status} if success else {"error": "Tool delta move failed"}
     
     elif "meca500_valve_open" in cmd.command:
         bank = getattr(cmd, "bank", 1)

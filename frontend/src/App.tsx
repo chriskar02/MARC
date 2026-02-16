@@ -9,10 +9,11 @@ import BotaFeedback from "./components/sensors/BotaFeedback";
 import JointManualControl from "./components/robot/JointManualControl";
 import SettingsPanel from "./components/robot/SettingsPanel";
 import PdxcControl from "./components/robot/PdxcControl";
+import RobotToolControl from "./components/robot/RobotToolControl";
 
 export default function App() {
   const heartbeat = useChannel("telemetry/realtime");
-  const [activeTab, setActiveTab] = useState<"wafer" | "laser" | "robot" | "settings">("wafer");
+  const [activeTab, setActiveTab] = useState<"wafer" | "laser" | "robot" | "settings" | "joints">("wafer");
 
   return (
     <div className="app-shell">
@@ -52,6 +53,12 @@ export default function App() {
           Robot Control
         </button>
         <button
+          className={`nav-btn ${activeTab === "joints" ? "active" : ""}`}
+          onClick={() => setActiveTab("joints")}
+        >
+          Joint Control
+        </button>
+        <button
           className={`nav-btn ${activeTab === "settings" ? "active" : ""}`}
           onClick={() => setActiveTab("settings")}
         >
@@ -87,6 +94,17 @@ export default function App() {
               <BotaFeedback />
               <PdxcControl />
             </section>
+            <section className="panel">
+              {/* New tool-tip based X/Y/Z controls */}
+              <RobotToolControl />
+            </section>
+          </div>
+        </main>
+      )}
+
+      {activeTab === "joints" && (
+        <main className="main-content">
+          <div className="grid-1col">
             <section className="panel">
               <JointManualControl />
             </section>

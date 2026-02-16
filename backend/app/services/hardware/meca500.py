@@ -64,6 +64,14 @@ class Meca500Controller:
         which is more efficient than separate calls.
         """
         try:
+            # Ensure we're connected before attempting activation/homing
+            if not self._connected:
+                logger.debug("meca500_activate_and_home_connecting", address=self.address)
+                connected = await self.connect()
+                if not connected:
+                    logger.error("meca500_activate_and_home_failed_connect", address=self.address)
+                    return False
+
             await asyncio.to_thread(self.robot.ActivateAndHome)
             # Wait for activation to complete
             await asyncio.to_thread(self.robot.WaitActivated, timeout=10)
@@ -114,7 +122,24 @@ class Meca500Controller:
 
     async def zero_all_joints(self) -> bool:
         """Move all joints to zero position (home configuration)."""
-        return await self.move_joints(0, 0, 0, 0, 0, 0)
+        try:
+            # Ensure connection and activation before commanding joints
+            if not self._connected:
+                connected = await self.connect()
+                if not connected:
+                    logger.error("meca500_zero_joints_no_connection")
+                    return False
+
+            if not self._activated:
+                activated = await self.activate_and_home()
+                if not activated:
+                    logger.error("meca500_zero_joints_not_activated")
+                    return False
+
+            return await self.move_joints(0, 0, 0, 0, 0, 0)
+        except Exception as e:
+            logger.error("meca500_zero_joints_failed", error=str(e))
+            return False
 
     async def get_joints(self) -> Optional[Tuple[float, float, float, float, float, float]]:
         """Get current joint positions."""

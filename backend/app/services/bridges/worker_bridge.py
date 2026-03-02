@@ -31,10 +31,22 @@ class WorkerBridge:
         coordinator.register_task(config, self._health_check_task)
 
     async def start_camera_worker(self, camera_config: Dict[str, Any]) -> None:
+        """Start a named Basler camera worker. Config must include 'name'."""
+        worker_name = camera_config.get("name", "basler_camera")
         spec = WorkerSpec(
-            name="basler_camera",
+            name=worker_name,
             target="app.worker.workers.camera_worker:run",
             config=camera_config,
+        )
+        await self._manager.start_worker(spec)
+
+    async def start_sensor_worker(self, sensor_config: Dict[str, Any]) -> None:
+        """Start a named sensor worker (e.g. Bota F/T). Config must include 'name'."""
+        worker_name = sensor_config.get("name", "sensor")
+        spec = WorkerSpec(
+            name=worker_name,
+            target="app.worker.workers.bota_worker:run",
+            config=sensor_config,
         )
         await self._manager.start_worker(spec)
 
@@ -42,11 +54,9 @@ class WorkerBridge:
         await self._manager.shutdown()
 
     async def _handle_payload(self, payload: WorkerPayload) -> None:
-        topic = f"worker/{payload.worker}/{payload.payload_type}"
-        if payload.payload_type.value == "frame":
-            logger.debug("worker_frame_received", worker=payload.worker, data_len=len(payload.data))
+        topic = f"worker/{payload.worker}/{payload.payload_type.value}"
         await self._event_bus.publish(topic, payload)
 
     async def _health_check_task(self):
-        for name, last_heartbeat in self._manager.snapshot().items():
-            logger.debug("worker_status", worker=name, last_heartbeat=last_heartbeat)
+        # Health data checked internally; no per-tick logging
+        self._manager.snapshot()

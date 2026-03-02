@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -9,39 +9,27 @@ from pydantic import BaseModel
 from ..core.config import Settings, get_settings
 from ..core.network import get_ipv4_adapters
 from ..services.hardware.meca500 import Meca500Controller
-from ..services.hardware.pdxc2 import PDXC2Controller
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/commands", tags=["commands"])
 
 # Singleton instances; in production, use dependency injection or app state
 _meca500_controller: Optional[Meca500Controller] = None
-_pdxc2_controller: Optional[PDXC2Controller] = None
 
 
 async def get_meca500(settings: Settings = Depends(get_settings)) -> Meca500Controller:
     """Dependency to get or create the Meca500 controller."""
     global _meca500_controller
     if _meca500_controller is None:
-        # Default IP; override via settings if needed
         meca_ip = getattr(settings, "meca500_address", "192.168.0.100")
-        _meca500_controller = Meca500Controller(address=meca_ip)
+        try:
+            _meca500_controller = Meca500Controller(address=meca_ip)
+        except Exception as e:
+            logger.error("meca500_init_failed", error=str(e))
+            raise HTTPException(status_code=503, detail=f"Meca500 init failed: {e}")
     return _meca500_controller
 
 
-async def get_pdxc2(settings: Settings = Depends(get_settings)) -> PDXC2Controller:
-    """Dependency to get or create the PDXC2 controller."""
-    global _pdxc2_controller
-    if _pdxc2_controller is None:
-        # Default serial number; override via settings if needed
-        serial = getattr(settings, "pdxc2_serial", "112000001")
-        # Set DLL path if configured
-        dll_path = getattr(settings, "kinesis_dll_path", None)
-        if dll_path:
-            from ..services.hardware.pdxc2 import set_kinesis_dll_path
-            set_kinesis_dll_path(dll_path)
-        _pdxc2_controller = PDXC2Controller(serial_number=serial)
-    return _pdxc2_controller
 
 
 class MotorCommand(BaseModel):
@@ -63,12 +51,12 @@ class DeviceCommand(BaseModel):
 
 @router.post("/motors/xy")
 async def xy_motor_command(cmd: MotorCommand):
-    """Handle XY stage motor commands."""
-    # TODO: Integrate with actual motor controller
+    """Handle Standa XY/XYZ stage motor commands (via libximc)."""
+    # TODO: Integrate with Standa ximc library
     if cmd.command == "move":
-        return {"x_position": cmd.value if cmd.axis == "x" else 0, "y_position": cmd.value if cmd.axis == "y" else 0}
+        return {"axis": cmd.axis, "position": cmd.value, "status": "moved"}
     elif cmd.command == "home":
-        return {"x_position": 0.0, "y_position": 0.0}
+        return {"x_position": 0.0, "y_position": 0.0, "z_position": 0.0, "status": "homed"}
     elif cmd.command == "stop":
         return {"status": "stopped"}
     raise HTTPException(status_code=400, detail=f"Unknown motor command: {cmd.command}")
@@ -108,28 +96,34 @@ async def get_meca_address(adapter_name: str, ip: str, netmask: str = "255.255.2
     }
 
 
-@router.post("/pdxc2")
-async def pdxc2_command(cmd: RobotCommand):
-    """Handle PDXC2 piezo controller commands."""
-    # TODO: Integrate with PDXC2_Control module
-    return {"pdxc2": f"Executed: {cmd.command}"}
-
-
 @router.post("/device")
 async def device_control(
     cmd: DeviceCommand,
     meca500: Meca500Controller = Depends(get_meca500),
-    pdxc2: PDXC2Controller = Depends(get_pdxc2),
 ):
     """Handle device-level control commands (activate, calibrate, etc.)."""
+    try:
+        return await _device_control_inner(cmd, meca500)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("device_control_unhandled", error=str(e), command=cmd.command)
+        return {"error": str(e), "command": cmd.command}
+
+
+async def _device_control_inner(cmd: DeviceCommand, meca500: Meca500Controller):
+    """Inner device control logic."""
     # === Meca500 Commands ===
     if "meca500_activate" in cmd.command:
         # Allow overriding address from command payload
         if hasattr(cmd, "address"):
             meca500.address = cmd.address
-        success = await meca500.activate_and_home()
-        status = await meca500.get_status()
-        return {"connected": meca500._connected, "enabled": meca500._activated, **status} if success else {"error": "Activation failed"}
+        result = await meca500.activate_and_home()
+        if result.get("success"):
+            status = await meca500.get_status()
+            return {"connected": meca500._connected, "enabled": meca500._activated, **(status or {})}
+        else:
+            return {"error": result.get("error", "Activation failed"), **{k: v for k, v in result.items() if k != "success"}}
     
     elif "meca500_deactivate" in cmd.command:
         success = await meca500.deactivate()
@@ -162,6 +156,50 @@ async def device_control(
         success = await meca500.move_tool_delta(float(dx), float(dy), float(dz), target_orientation)
         status = await meca500.get_status()
         return {"moved": success, **status} if success else {"error": "Tool delta move failed"}
+
+    elif "meca500_move_pose" in cmd.command:
+        # Move to absolute Cartesian XYZ position (keeps orientation from optional params or current)
+        x = float(getattr(cmd, "x", 0))
+        y = float(getattr(cmd, "y", 0))
+        z = float(getattr(cmd, "z", 0))
+        alpha = getattr(cmd, "alpha", None)
+        beta = getattr(cmd, "beta", None)
+        gamma = getattr(cmd, "gamma", None)
+        # Fill orientation from current pose if not provided
+        if alpha is None or beta is None or gamma is None:
+            current = await meca500.get_pose()
+            if current:
+                alpha = float(alpha) if alpha is not None else current.get("alpha", 0)
+                beta = float(beta) if beta is not None else current.get("beta", 0)
+                gamma = float(gamma) if gamma is not None else current.get("gamma", 0)
+            else:
+                alpha = float(alpha or 0)
+                beta = float(beta or 0)
+                gamma = float(gamma or 0)
+        success = await meca500.move_to_pose(x, y, z, float(alpha), float(beta), float(gamma))
+        pose = await meca500.get_pose()
+        return {"moved": success, "pose": pose} if success else {"error": "Move pose failed"}
+
+    elif "meca500_get_pose" in cmd.command:
+        try:
+            if not meca500._connected:
+                return {"pose": None, "joints": None, "connected": False}
+            pose = await meca500.get_pose()
+            joints = await meca500.get_joints()
+            status = await meca500.get_status()
+            return {"pose": pose, "joints": list(joints) if joints else None, "connected": True, **(status or {})}
+        except Exception as e:
+            logger.error("meca500_get_pose_endpoint_failed", error=str(e))
+            return {"pose": None, "joints": None, "connected": meca500._connected, "error": str(e)}
+
+    elif "meca500_move_xyz_delta" in cmd.command:
+        # Relative XYZ delta move in Cartesian space, preserving orientation
+        dx = float(getattr(cmd, "dx", 0))
+        dy = float(getattr(cmd, "dy", 0))
+        dz = float(getattr(cmd, "dz", 0))
+        success = await meca500.move_tool_delta(dx, dy, dz)
+        pose = await meca500.get_pose()
+        return {"moved": success, "pose": pose} if success else {"error": "XYZ delta move failed"}
     
     elif "meca500_valve_open" in cmd.command:
         bank = getattr(cmd, "bank", 1)
@@ -186,85 +224,32 @@ async def device_control(
         await meca500.disconnect()
         return {"connected": False}
     
-    # === PDXC2 Commands ===
-    elif "pdxc2_connect" in cmd.command:
-        success = await pdxc2.connect()
-        status = await pdxc2.get_status()
-        return {"connected": success, **status.__dict__} if success else {"error": "Connection failed"}
-    
-    elif "pdxc2_disconnect" in cmd.command:
-        success = await pdxc2.disconnect()
-        return {"connected": False} if success else {"error": "Disconnection failed"}
-    
-    elif "pdxc2_enable" in cmd.command:
-        success = await pdxc2.enable_device()
-        status = await pdxc2.get_status()
-        return {"enabled": success, **status.__dict__} if success else {"error": "Enable failed"}
-    
-    elif "pdxc2_disable" in cmd.command:
-        success = await pdxc2.disable_device()
-        status = await pdxc2.get_status()
-        return {"enabled": False, **status.__dict__} if success else {"error": "Disable failed"}
-    
-    elif "pdxc2_calibrate" in cmd.command:
-        # Connect if not already connected
-        if not pdxc2._connected:
-            await pdxc2.connect()
-        # Enable if not already enabled
-        if not pdxc2._enabled:
-            await pdxc2.enable_device()
-        # Run full calibration with pulse parameter acquisition
-        success = await pdxc2.calibrate(timeout_ms=60000)
-        status = await pdxc2.get_status()
-        return {"calibrated": success, **status.__dict__} if success else {"error": "Calibration failed"}
-    
-    elif "pdxc2_home" in cmd.command:
-        # Connect if not already connected
-        if not pdxc2._connected:
-            await pdxc2.connect()
-        # Enable if not already enabled
-        if not pdxc2._enabled:
-            await pdxc2.enable_device()
-        # Run quick home (without full calibration)
-        success = await pdxc2.quick_home(timeout_ms=10000)
-        status = await pdxc2.get_status()
-        return {"homed": success, **status.__dict__} if success else {"error": "Home failed"}
-    
-    elif "pdxc2_set_open_loop" in cmd.command:
-        success = await pdxc2.set_open_loop_mode()
-        status = await pdxc2.get_status()
-        return {"mode": "open_loop", **status.__dict__} if success else {"error": "Mode change failed"}
-    
-    elif "pdxc2_set_closed_loop" in cmd.command:
-        success = await pdxc2.set_closed_loop_mode()
-        status = await pdxc2.get_status()
-        return {"mode": "closed_loop", **status.__dict__} if success else {"error": "Mode change failed"}
-    
-    elif "pdxc2_move_open_loop" in cmd.command:
-        step_size = getattr(cmd, "step_size", 1)
-        success = await pdxc2.move_open_loop(step_size)
-        status = await pdxc2.get_status()
-        return {"moved": success, **status.__dict__} if success else {"error": "Move failed"}
-    
-    elif "pdxc2_move_closed_loop" in cmd.command:
-        position = getattr(cmd, "position", 0)
-        success = await pdxc2.move_closed_loop(position)
-        status = await pdxc2.get_status()
-        return {"moved": success, **status.__dict__} if success else {"error": "Move failed"}
-    
     # === Bota Commands ===
     elif "bota_tare" in cmd.command:
         # TODO: Implement Bota tare
         return {"connected": True, "tared": True}
     
-    # === XY Motor Commands ===
-    elif "xy_motors_connect" in cmd.command:
-        # TODO: Implement XY motor connection
-        return {"connected": True}
+    # === Standa Stage Motor Commands ===
+    elif "standa_connect" in cmd.command:
+        # TODO: Implement Standa ximc connection
+        port = getattr(cmd, "port", "")
+        return {"connected": True, "port": port}
     
-    elif "xy_motors_disconnect" in cmd.command:
-        # TODO: Implement XY motor disconnection
+    elif "standa_disconnect" in cmd.command:
+        # TODO: Implement Standa ximc disconnection
         return {"connected": False}
+    
+    elif "standa_home" in cmd.command:
+        # TODO: Implement Standa homing
+        return {"status": "homed", "x": 0, "y": 0, "z": 0}
+
+    elif "standa_move" in cmd.command:
+        axis = getattr(cmd, "axis", "x")
+        value = float(getattr(cmd, "value", 0))
+        return {"axis": axis, "position": value, "status": "moved"}
+
+    elif "standa_stop" in cmd.command:
+        return {"status": "stopped"}
     
     raise HTTPException(status_code=400, detail=f"Unknown device command: {cmd.command}")
 

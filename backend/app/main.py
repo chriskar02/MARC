@@ -48,12 +48,40 @@ async def lifespan(app: FastAPI):
         coroutine_factory=_telemetry_task_factory(event_bus),
     )
     
-    # Initialize worker bridge and start camera worker
+    # Initialize worker bridge and start camera + sensor workers
     worker_bridge = WorkerBridge(event_bus)
     await worker_bridge.attach_coordinator(coordinator)
-    print("[Main] Starting camera worker...")
-    await worker_bridge.start_camera_worker({"fps": 30})
-    print("[Main] Camera worker started")
+
+    camera_configs = [
+        {"name": "overhead_camera",     "fps": 10, "serial": "25020811"},
+        {"name": "split_optics_camera", "fps": 10, "serial": "25240869"},
+        # laser_camera disabled — no third camera connected
+    ]
+    for i, cam_cfg in enumerate(camera_configs):
+        if i > 0:
+            # Stagger USB camera starts so they don't race for device handles
+            print(f"[Main] Waiting 3s before starting next camera...")
+            await asyncio.sleep(3)
+        print(f"[Main] Starting camera worker: {cam_cfg['name']}")
+        try:
+            await worker_bridge.start_camera_worker(cam_cfg)
+            print(f"[Main] Camera worker started: {cam_cfg['name']}")
+        except Exception as exc:
+            print(f"[Main] Failed to start {cam_cfg['name']}: {exc}")
+
+    # Start Bota MiniONE Pro F/T sensor worker (UDP on adapter 192.168.0.101)
+    bota_config = {
+        "name": "bota_sensor",
+        "adapter_ip": "192.168.0.101",
+        "listen_port": 49152,
+        "publish_rate": 100,   # 100 Hz to frontend
+    }
+    print("[Main] Starting Bota F/T sensor worker")
+    try:
+        await worker_bridge.start_sensor_worker(bota_config)
+        print("[Main] Bota sensor worker started")
+    except Exception as exc:
+        print(f"[Main] Failed to start Bota sensor worker: {exc}")
     
     app.state.settings = settings
     app.state.event_bus = event_bus
@@ -62,6 +90,13 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # Disconnect Meca500 if connected (prevents stale TCP sessions)
+        from .api.commands import _meca500_controller
+        if _meca500_controller is not None:
+            try:
+                await _meca500_controller.disconnect()
+            except Exception:
+                pass
         await worker_bridge.shutdown()
         await coordinator.stop()
 
@@ -139,14 +174,37 @@ def create_app() -> FastAPI:
                 try:
                     await websocket.send_json(message)
                 except Exception:
-                    break  # Client disconnected, exit gracefully
+                    break
         except Exception as exc:
             logger.error("ws_camera_error", error_msg=str(exc))
         finally:
             try:
                 await websocket.close()
             except Exception:
-                pass  # Already closed
+                pass
+
+    @application.websocket("/ws/sensor/{worker_name}")
+    async def websocket_sensor(websocket: WebSocket, worker_name: str) -> None:
+        """Stream F/T sensor data to frontend."""
+        await websocket.accept()
+        event_bus: EventBus = application.state.event_bus
+        try:
+            async for payload in event_bus.subscribe(f"worker/{worker_name}/ft_sample"):
+                message = {
+                    "topic": f"worker/{worker_name}/ft_sample",
+                    "payload": payload.metadata or {},
+                }
+                try:
+                    await websocket.send_json(message)
+                except Exception:
+                    break
+        except Exception as exc:
+            logger.error("ws_sensor_error", error_msg=str(exc))
+        finally:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
 
     return application
 

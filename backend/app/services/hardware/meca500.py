@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Optional, Tuple
 
 import mecademicpy.robot as mdr
 
-logger = logging.getLogger(__name__)
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class Meca500Controller:
@@ -22,31 +23,56 @@ class Meca500Controller:
 
     def __init__(self, address: str = "192.168.0.100", enable_callbacks: bool = True):
         self.address = address
-        self.robot = mdr.Robot()
+        self.robot: Optional[mdr.Robot] = None
         self.enable_callbacks = enable_callbacks
         self._connected = False
         self._activated = False
         self._homed = False
         self._error_state = False
 
+    def _ensure_robot(self) -> mdr.Robot:
+        """Lazily create the Robot instance."""
+        if self.robot is None:
+            self.robot = mdr.Robot()
+        return self.robot
+
     async def connect(self) -> bool:
-        """Connect to the Meca500 robot."""
-        try:
-            # Connect is synchronous even in async mode
-            await asyncio.to_thread(self.robot.Connect, address=self.address)
-            self._connected = True
-            logger.info("meca500_connected", address=self.address)
+        """Connect to the Meca500 robot.
 
-            if self.enable_callbacks:
-                await self._register_callbacks()
+        If the robot reports 'Another user is already controlling the robot',
+        rebuild the Robot instance and retry once after a short delay.
+        """
+        for attempt in range(2):
+            try:
+                robot = self._ensure_robot()
+                await asyncio.to_thread(robot.Connect, address=self.address, timeout=5)
+                self._connected = True
+                logger.info("meca500_connected", address=self.address)
 
-            return True
-        except Exception as e:
-            logger.error("meca500_connect_failed", error=str(e), address=self.address)
-            return False
+                if self.enable_callbacks:
+                    await self._register_callbacks()
+
+                return True
+            except Exception as e:
+                err_str = str(e)
+                if "Another user" in err_str and attempt == 0:
+                    logger.warning("meca500_busy_retry", error=err_str)
+                    # Destroy old object so a fresh TCP socket is used
+                    try:
+                        self.robot.Disconnect()
+                    except Exception:
+                        pass
+                    self.robot = None
+                    await asyncio.sleep(2)
+                    continue
+                logger.error("meca500_connect_failed", error=err_str, address=self.address)
+                return False
+        return False
 
     async def disconnect(self) -> None:
         """Disconnect from the Meca500 robot."""
+        if self.robot is None:
+            return
         try:
             await asyncio.to_thread(self.robot.Disconnect)
             self._connected = False
@@ -56,12 +82,12 @@ class Meca500Controller:
         except Exception as e:
             logger.error("meca500_disconnect_failed", error=str(e))
 
-    async def activate_and_home(self) -> bool:
+    async def activate_and_home(self) -> dict:
         """
         Activate the robot and perform homing if necessary.
         
-        This follows the mecademicpy recommendation to use ActivateAndHome()
-        which is more efficient than separate calls.
+        Returns a dict with 'success' bool and optional 'error' string with details.
+        Handles safety stop conditions that require manual acknowledgment via MecaPortal.
         """
         try:
             # Ensure we're connected before attempting activation/homing
@@ -70,26 +96,72 @@ class Meca500Controller:
                 connected = await self.connect()
                 if not connected:
                     logger.error("meca500_activate_and_home_failed_connect", address=self.address)
-                    return False
+                    return {"success": False, "error": f"Could not connect to robot at {self.address}"}
 
-            await asyncio.to_thread(self.robot.ActivateAndHome)
+            robot = self._ensure_robot()
+            
+            # Check safety status before trying to activate
+            try:
+                safety = await asyncio.to_thread(robot.GetSafetyStatus)
+                if safety and safety.stop_mask != 0:
+                    # Try automatic reset first
+                    logger.info("meca500_safety_stop_detected", stop_mask=safety.stop_mask, reset_ready=safety.reset_ready)
+                    await asyncio.to_thread(robot.ResetError)
+                    await asyncio.sleep(0.5)
+                    try:
+                        await asyncio.to_thread(robot.ResetPStop2)
+                        await asyncio.sleep(1)
+                    except Exception:
+                        pass
+                    
+                    # Re-check
+                    safety = await asyncio.to_thread(robot.GetSafetyStatus)
+                    if safety and safety.stop_mask != 0:
+                        # Safety stop still active — manual reset required
+                        conditions = []
+                        if safety.reboot_stop_state:
+                            conditions.append("Robot rebooted")
+                        if safety.estop_state:
+                            conditions.append("E-Stop active")
+                        if safety.pstop2_state:
+                            conditions.append("PStop2 active")
+                        condition_str = ", ".join(conditions) if conditions else f"stop_mask=0x{safety.stop_mask:02x}"
+                        return {
+                            "success": False,
+                            "error": f"Safety stop active: {condition_str}. Open MecaPortal at http://{self.address} to clear.",
+                            "safety_reset_required": True,
+                            "portal_url": f"http://{self.address}",
+                        }
+            except Exception as e:
+                logger.warning("meca500_safety_check_failed", error=str(e))
+
+            await asyncio.to_thread(robot.ActivateAndHome)
             # Wait for activation to complete
-            await asyncio.to_thread(self.robot.WaitActivated, timeout=10)
+            await asyncio.to_thread(robot.WaitActivated, timeout=10)
             self._activated = True
             # Wait for homing to complete
-            await asyncio.to_thread(self.robot.WaitHomed, timeout=10)
+            await asyncio.to_thread(robot.WaitHomed, timeout=10)
             self._homed = True
             logger.info("meca500_activated_and_homed")
-            return True
+            return {"success": True}
         except Exception as e:
-            logger.error("meca500_activate_home_failed", error=str(e))
-            return False
+            err = str(e)
+            logger.error("meca500_activate_home_failed", error=err)
+            if "Activation" in err and "safety" in err.lower():
+                return {
+                    "success": False,
+                    "error": f"Safety stop prevents activation. Open MecaPortal at http://{self.address} to reset.",
+                    "safety_reset_required": True,
+                    "portal_url": f"http://{self.address}",
+                }
+            return {"success": False, "error": f"Activation failed: {err}"}
 
     async def deactivate(self) -> bool:
         """Deactivate the robot."""
         try:
-            await asyncio.to_thread(self.robot.DeactivateRobot)
-            await asyncio.to_thread(self.robot.WaitDeactivated, timeout=5)
+            robot = self._ensure_robot()
+            await asyncio.to_thread(robot.DeactivateRobot)
+            await asyncio.to_thread(robot.WaitDeactivated, timeout=5)
             self._activated = False
             self._homed = False
             logger.info("meca500_deactivated")
@@ -101,8 +173,9 @@ class Meca500Controller:
     async def home(self) -> bool:
         """Perform homing sequence."""
         try:
-            await asyncio.to_thread(self.robot.Home)
-            await asyncio.to_thread(self.robot.WaitHomed, timeout=10)
+            robot = self._ensure_robot()
+            await asyncio.to_thread(robot.Home)
+            await asyncio.to_thread(robot.WaitHomed, timeout=10)
             self._homed = True
             logger.info("meca500_homed")
             return True
@@ -113,7 +186,7 @@ class Meca500Controller:
     async def move_joints(self, j1: float, j2: float, j3: float, j4: float, j5: float, j6: float) -> bool:
         """Move to specified joint angles (degrees)."""
         try:
-            await asyncio.to_thread(self.robot.MoveJoints, j1, j2, j3, j4, j5, j6)
+            await asyncio.to_thread(self._ensure_robot().MoveJoints, j1, j2, j3, j4, j5, j6)
             logger.debug("meca500_move_joints_sent", joints=[j1, j2, j3, j4, j5, j6])
             return True
         except Exception as e:
@@ -123,13 +196,14 @@ class Meca500Controller:
     async def move_to_pose(self, x: float, y: float, z: float, alpha: float, beta: float, gamma: float) -> bool:
         """Move tool tip to a Cartesian pose. Uses robot.MovePose if available, otherwise falls back to SendCustomCommand."""
         try:
-            move_fn = getattr(self.robot, "MovePose", None)
+            robot = self._ensure_robot()
+            move_fn = getattr(robot, "MovePose", None)
             if callable(move_fn):
                 await asyncio.to_thread(move_fn, x, y, z, alpha, beta, gamma)
             else:
                 # Fallback: send custom command string (device-specific)
                 cmd = f"MovePose {x} {y} {z} {alpha} {beta} {gamma}"
-                await asyncio.to_thread(self.robot.SendCustomCommand, cmd)
+                await asyncio.to_thread(robot.SendCustomCommand, cmd)
             logger.debug("meca500_move_to_pose", pose=[x, y, z, alpha, beta, gamma])
             return True
         except Exception as e:
@@ -193,7 +267,7 @@ class Meca500Controller:
     async def get_joints(self) -> Optional[Tuple[float, float, float, float, float, float]]:
         """Get current joint positions."""
         try:
-            joints = await asyncio.to_thread(self.robot.GetJoints)
+            joints = await asyncio.to_thread(self._ensure_robot().GetJoints)
             logger.debug("meca500_joints_read", joints=joints)
             return tuple(joints) if joints else None
         except Exception as e:
@@ -203,7 +277,7 @@ class Meca500Controller:
     async def get_pose(self) -> Optional[dict]:
         """Get current Cartesian pose (position + orientation)."""
         try:
-            pose = await asyncio.to_thread(self.robot.GetPose)
+            pose = await asyncio.to_thread(self._ensure_robot().GetPose)
             if pose:
                 return {
                     "x": pose[0],
@@ -221,7 +295,7 @@ class Meca500Controller:
     async def get_status(self) -> Optional[dict]:
         """Get robot status (connection, activation, error state, etc.)."""
         try:
-            status = await asyncio.to_thread(self.robot.GetStatusRobot)
+            status = await asyncio.to_thread(self._ensure_robot().GetStatusRobot)
             return {
                 "connected": self._connected,
                 "activated": self._activated,
@@ -237,7 +311,7 @@ class Meca500Controller:
     async def reset_error(self) -> bool:
         """Reset robot error state."""
         try:
-            await asyncio.to_thread(self.robot.ResetError)
+            await asyncio.to_thread(self._ensure_robot().ResetError)
             self._error_state = False
             logger.info("meca500_error_reset")
             return True
@@ -248,7 +322,7 @@ class Meca500Controller:
     async def wait_idle(self, timeout: float = 30.0) -> bool:
         """Wait for robot to complete all motions."""
         try:
-            await asyncio.to_thread(self.robot.WaitIdle, timeout=timeout)
+            await asyncio.to_thread(self._ensure_robot().WaitIdle, timeout=timeout)
             logger.debug("meca500_wait_idle_complete")
             return True
         except asyncio.TimeoutError:
@@ -261,7 +335,7 @@ class Meca500Controller:
     async def clear_motion(self) -> bool:
         """Clear the motion queue immediately."""
         try:
-            await asyncio.to_thread(self.robot.ClearMotion)
+            await asyncio.to_thread(self._ensure_robot().ClearMotion)
             logger.warning("meca500_motion_cleared")
             return True
         except Exception as e:
@@ -271,7 +345,7 @@ class Meca500Controller:
     async def pause_motion(self) -> bool:
         """Pause ongoing motion."""
         try:
-            await asyncio.to_thread(self.robot.PauseMotion)
+            await asyncio.to_thread(self._ensure_robot().PauseMotion)
             logger.info("meca500_motion_paused")
             return True
         except Exception as e:
@@ -281,7 +355,7 @@ class Meca500Controller:
     async def resume_motion(self) -> bool:
         """Resume paused motion."""
         try:
-            await asyncio.to_thread(self.robot.ResumeMotion)
+            await asyncio.to_thread(self._ensure_robot().ResumeMotion)
             logger.info("meca500_motion_resumed")
             return True
         except Exception as e:
@@ -295,7 +369,7 @@ class Meca500Controller:
         This is for advanced usage or testing; prefer specific methods when available.
         """
         try:
-            response = await asyncio.to_thread(self.robot.SendCustomCommand, command)
+            response = await asyncio.to_thread(self._ensure_robot().SendCustomCommand, command)
             logger.debug("meca500_custom_command", command=command, response=str(response))
             return str(response) if response else "OK"
         except Exception as e:
@@ -316,7 +390,7 @@ class Meca500Controller:
         """
         try:
             # SetIO(bank, pin, state)
-            await asyncio.to_thread(self.robot.SetIO, bank, pin, state)
+            await asyncio.to_thread(self._ensure_robot().SetIO, bank, pin, state)
             logger.info("meca500_valve_set", bank=bank, pin=pin, state=state)
             return True
         except Exception as e:
@@ -336,7 +410,7 @@ class Meca500Controller:
         """
         try:
             # GetIO(bank, pin) returns the state
-            state = await asyncio.to_thread(self.robot.GetIO, bank, pin)
+            state = await asyncio.to_thread(self._ensure_robot().GetIO, bank, pin)
             logger.debug("meca500_valve_state_read", bank=bank, pin=pin, state=state)
             return bool(state)
         except Exception as e:
@@ -382,7 +456,7 @@ class Meca500Controller:
         callbacks.on_error = on_error
 
         await asyncio.to_thread(
-            self.robot.RegisterCallbacks,
+            self._ensure_robot().RegisterCallbacks,
             callbacks=callbacks,
             run_callbacks_in_separate_thread=True,
         )

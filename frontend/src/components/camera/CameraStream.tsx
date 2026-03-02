@@ -13,8 +13,8 @@ export default function CameraStream({ workerName }: Props) {
   const blobUrl = useMemo(() => {
     if (!frame?.data) return null;
     const buffer = Uint8Array.from(atob(frame.data), (c) => c.charCodeAt(0));
-    // Use image/png for PNG data
-    const blob = new Blob([buffer], { type: "image/png" });
+    const fmt = frame.metadata?.format === "png" ? "image/png" : "image/jpeg";
+    const blob = new Blob([buffer], { type: fmt });
     return URL.createObjectURL(blob);
   }, [frame]);
 

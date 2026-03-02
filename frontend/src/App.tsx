@@ -1,19 +1,12 @@
 import { useState } from "react";
-import CameraStream from "./components/camera/CameraStream";
-import TelemetryPanel from "./components/plots/TelemetryPanel";
 import { useChannel } from "./hooks/useChannel";
-import WaferControl from "./components/motors/WaferControl";
-import LaserControl from "./components/motors/LaserControl";
-import RobotCommandConsole from "./components/robot/RobotCommandConsole";
-import BotaFeedback from "./components/sensors/BotaFeedback";
-import JointManualControl from "./components/robot/JointManualControl";
+import SplitOpticsPanel from "./components/panels/SplitOpticsPanel";
+import LaserOverheadPanel from "./components/panels/LaserOverheadPanel";
 import SettingsPanel from "./components/robot/SettingsPanel";
-import PdxcControl from "./components/robot/PdxcControl";
-import RobotToolControl from "./components/robot/RobotToolControl";
 
 export default function App() {
   const heartbeat = useChannel("telemetry/realtime");
-  const [activeTab, setActiveTab] = useState<"wafer" | "laser" | "robot" | "settings" | "joints">("wafer");
+  const [activeTab, setActiveTab] = useState<"split_optics" | "laser_overhead" | "settings">("split_optics");
 
   return (
     <div className="app-shell">
@@ -35,28 +28,16 @@ export default function App() {
 
       <nav className="app-nav">
         <button
-          className={`nav-btn ${activeTab === "wafer" ? "active" : ""}`}
-          onClick={() => setActiveTab("wafer")}
+          className={`nav-btn ${activeTab === "split_optics" ? "active" : ""}`}
+          onClick={() => setActiveTab("split_optics")}
         >
-          Wafer Control
+          Split Optics
         </button>
         <button
-          className={`nav-btn ${activeTab === "laser" ? "active" : ""}`}
-          onClick={() => setActiveTab("laser")}
+          className={`nav-btn ${activeTab === "laser_overhead" ? "active" : ""}`}
+          onClick={() => setActiveTab("laser_overhead")}
         >
-          Laser Control
-        </button>
-        <button
-          className={`nav-btn ${activeTab === "robot" ? "active" : ""}`}
-          onClick={() => setActiveTab("robot")}
-        >
-          Robot Control
-        </button>
-        <button
-          className={`nav-btn ${activeTab === "joints" ? "active" : ""}`}
-          onClick={() => setActiveTab("joints")}
-        >
-          Joint Control
+          Laser &amp; Overhead
         </button>
         <button
           className={`nav-btn ${activeTab === "settings" ? "active" : ""}`}
@@ -66,49 +47,15 @@ export default function App() {
         </button>
       </nav>
 
-      {activeTab === "wafer" && (
+      {activeTab === "split_optics" && (
         <main className="main-content">
-          <div className="grid-2col">
-            <WaferControl />
-            <CameraStream workerName="overhead_camera" />
-          </div>
+          <SplitOpticsPanel />
         </main>
       )}
 
-      {activeTab === "laser" && (
+      {activeTab === "laser_overhead" && (
         <main className="main-content">
-          <div className="grid-2col">
-            <LaserControl />
-            <CameraStream workerName="laser_camera" />
-          </div>
-        </main>
-      )}
-
-      {activeTab === "robot" && (
-        <main className="main-content">
-          <div className="grid-3col">
-            <section className="panel">
-              <RobotCommandConsole />
-            </section>
-            <section className="panel">
-              <BotaFeedback />
-              <PdxcControl />
-            </section>
-            <section className="panel">
-              {/* New tool-tip based X/Y/Z controls */}
-              <RobotToolControl />
-            </section>
-          </div>
-        </main>
-      )}
-
-      {activeTab === "joints" && (
-        <main className="main-content">
-          <div className="grid-1col">
-            <section className="panel">
-              <JointManualControl />
-            </section>
-          </div>
+          <LaserOverheadPanel />
         </main>
       )}
 

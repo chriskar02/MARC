@@ -24,67 +24,57 @@ def run(control_conn, data_queue, config: Dict[str, Any]) -> None:
     print(f"[CameraWorker] Data queue: {data_queue}")
     print(f"[CameraWorker] Control connection: {control_conn}")
     
-    # Initialize Basler camera
+    # Initialize Basler camera with retry logic
     camera = None
-    tlFactory = pylon.TlFactory.GetInstance()
-    target_serial = "25240869"
-    
-    try:
-        # Try to create camera from first available device
-        print("[CameraWorker] Attempting to create camera...")
-        devices = tlFactory.EnumerateDevices()
-        print(f"[CameraWorker] Found {len(devices)} device(s)")
-        
-        if len(devices) > 0:
-            # Try to find camera by serial number
+    converter = None
+    use_fallback = True
+    target_serial = config.get("serial", None)  # assigned from main.py config
+    MAX_RETRIES = 3
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            tlFactory = pylon.TlFactory.GetInstance()
+            print(f"[CameraWorker:{name}] Attempt {attempt}/{MAX_RETRIES} — enumerating...")
+            devices = tlFactory.EnumerateDevices()
+            print(f"[CameraWorker:{name}] Found {len(devices)} device(s)")
+
+            if len(devices) == 0:
+                print(f"[CameraWorker:{name}] No devices found, retrying...")
+                import time as _t; _t.sleep(2)
+                continue
+
             device_to_use = None
             for i, dev in enumerate(devices):
                 dev_info = pylon.CDeviceInfo(dev)
                 serial = dev_info.GetSerialNumber()
                 model = dev_info.GetModelName()
-                print(f"[CameraWorker] Device {i}: {model} (SN: {serial})")
+                print(f"[CameraWorker:{name}]   [{i}] {model} SN={serial}")
                 if serial == target_serial:
                     device_to_use = dev
-                    print(f"[CameraWorker] Found target camera with SN {target_serial}")
-                    break
-            
-            # If target not found, use first device
-            if device_to_use is None:
-                print(f"[CameraWorker] Target camera SN {target_serial} not found, using first device")
-                device_to_use = devices[0]
-            
-            camera = pylon.InstantCamera(tlFactory.CreateDevice(device_to_use))
-            print(f"[CameraWorker] Trying to open: {camera.GetDeviceInfo().GetModelName()}")
-            camera.Open()
-            print(f"[CameraWorker] Camera opened successfully")
-            use_fallback = False
-        else:
-            print("[CameraWorker] No camera device found")
-            use_fallback = True
-            
-    except Exception as e:
-        print(f"[CameraWorker] Failed to create/open camera: {e}")
-        print(f"[CameraWorker] Exception type: {type(e).__name__}")
-        use_fallback = True
-        camera = None
 
-    # Start grabbing if camera is available
-    converter = None
-    if camera and not use_fallback:
-        try:
+            if device_to_use is None:
+                print(f"[CameraWorker:{name}] Target SN {target_serial} not found")
+                import time as _t; _t.sleep(2)
+                continue
+
+            camera = pylon.InstantCamera(tlFactory.CreateDevice(device_to_use))
+            camera.Open()
             camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             converter = pylon.ImageFormatConverter()
             converter.OutputPixelFormat = pylon.PixelType_BGR8packed
-            print("[CameraWorker] Camera grabbing started successfully")
+            use_fallback = False
+            print(f"[CameraWorker:{name}] Camera SN {target_serial} opened and grabbing")
+            break
+
         except Exception as e:
-            print(f"[CameraWorker] Failed to start grabbing: {e}")
-            use_fallback = True
-            if camera:
-                try:
-                    camera.Close()
-                except:
-                    pass
-                camera = None
+            print(f"[CameraWorker:{name}] Attempt {attempt} failed: {type(e).__name__}: {e}")
+            camera = None
+            converter = None
+            if attempt < MAX_RETRIES:
+                import time as _t; _t.sleep(2)
+
+    if use_fallback:
+        print(f"[CameraWorker:{name}] All attempts failed — using test pattern")
 
     while running:
         if control_conn.poll():
@@ -110,8 +100,6 @@ def run(control_conn, data_queue, config: Dict[str, Any]) -> None:
                     converter.OutputPixelFormat = pylon.PixelType_BGR8packed
                     image = converter.Convert(grab_result)
                     frame = image.GetArray().copy()
-                    if frame is not None:
-                        print(f"[CameraWorker] Frame {frame_count}: captured {frame.shape}")
                 else:
                     error_code = grab_result.GetErrorCode()
                     print(f"[CameraWorker] Grab failed with error code: {error_code}")
@@ -170,27 +158,23 @@ def run(control_conn, data_queue, config: Dict[str, Any]) -> None:
                 frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
                 frame_width, frame_height = new_width, new_height
             
-            # Convert to PNG bytes
-            success, frame_bytes = cv2.imencode(".png", frame, [cv2.IMWRITE_PNG_COMPRESSION, 6])
+            # Convert to JPEG bytes (much faster than PNG)
+            success, frame_bytes = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
             
             if success:
-                print(f"[CameraWorker] Frame {frame_count}: PNG {len(frame_bytes)} bytes, {frame_width}x{frame_height}")
                 payload = WorkerPayload(
                     worker=name,
                     sequence_id=frame_count,
                     monotonic_ts=time.monotonic(),
                     payload_type=WorkerPayloadType.frame,
                     data=frame_bytes.tobytes(),
-                    metadata={"format": "png", "width": frame_width, "height": frame_height},
+                    metadata={"format": "jpeg", "width": frame_width, "height": frame_height},
                 )
                 try:
                     data_queue.put(payload, block=False)
-                    print(f"[CameraWorker] Frame {frame_count} queued successfully")
                     frame_count += 1
-                except Exception as e:
-                    print(f"[CameraWorker] Failed to queue frame: {e}")
-            else:
-                print(f"[CameraWorker] Failed to encode frame as PNG")
+                except Exception:
+                    pass  # queue full, skip frame
 
         now = time.time()
         if (now - last_heartbeat) >= 0.1:

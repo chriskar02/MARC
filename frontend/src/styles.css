@@ -287,3 +287,318 @@ button:active {
   display: block;
 }
 
+/* ── Split-optics panel: 3-zone grid (no scroll) ── */
+
+.split-optics-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 1rem;
+  height: 100%;
+}
+
+.so-top-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 1rem;
+}
+
+.so-top-bar .panel {
+  padding: 0.75rem 1rem;
+  overflow: visible;
+}
+
+.so-top-bar h2 {
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.so-top-inner {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.so-standa-xy { flex: 1; }
+.so-stage-z   { flex: 0 0 auto; min-width: 180px; }
+
+.so-left-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.so-left-col > .panel {
+  overflow: visible;
+  padding: 0.75rem 1rem;
+}
+
+.so-left-col > .panel h2 {
+  margin-bottom: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.so-right-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Per-axis step row (horizontal) */
+.step-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.step-row > div { flex: 1; }
+
+/* Step label + input (compact) */
+.step-label {
+  display: block;
+  font-size: 0.7rem;
+  color: #8b949e;
+  font-weight: 500;
+  margin-bottom: 0.15rem;
+}
+
+.step-input {
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.8rem;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  background: rgba(13, 17, 23, 0.8);
+  color: #e6edf3;
+  margin-bottom: 0;
+}
+
+/* Step column (used in top-bar next to arrows) */
+.step-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 80px;
+}
+
+/* Laser-overhead keeps original 2-col layout */
+.laser-overhead-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  height: 100%;
+}
+
+.controls-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.camera-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ── XYZ Readout ── */
+
+.xyz-readout {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.xyz-item {
+  flex: 1;
+  text-align: center;
+  background: rgba(13, 17, 23, 0.8);
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 0.5rem 0.25rem;
+}
+
+.xyz-label {
+  display: block;
+  font-size: 0.7rem;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.15rem;
+}
+
+.xyz-value {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: "Courier New", monospace;
+  color: #58a6ff;
+}
+
+/* ── XYZ Jog Grid ── */
+
+.xyz-jog-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, auto);
+  gap: 0.4rem;
+  justify-items: stretch;
+}
+
+.xyz-jog-grid button {
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.jog-center-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  color: #8b949e;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+/* ── Grid-1col ── */
+
+.grid-1col {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  height: 100%;
+}
+
+/* ═══════════════════════════════════════════════════════
+   XILab-style directional arrow pad
+   ═══════════════════════════════════════════════════════ */
+
+.arrow-pad-container {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+  align-items: flex-start;
+  margin: 0.75rem 0;
+}
+
+/* 3×3 cross for XY */
+.arrow-cross {
+  display: grid;
+  grid-template-columns: repeat(3, 56px);
+  grid-template-rows: repeat(3, 56px);
+  gap: 4px;
+  justify-items: center;
+  align-items: center;
+}
+
+.arrow-cross .arrow-up    { grid-column: 2; grid-row: 1; }
+.arrow-cross .arrow-left  { grid-column: 1; grid-row: 2; }
+.arrow-cross .arrow-center,
+.arrow-cross > .arrow-center { grid-column: 2; grid-row: 2; }
+.arrow-cross .arrow-right { grid-column: 3; grid-row: 2; }
+.arrow-cross .arrow-down  { grid-column: 2; grid-row: 3; }
+
+/* Single column for Z axis */
+.arrow-z-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  width: 56px;
+}
+
+/* Arrow button base */
+.arrow-btn {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  background: rgba(22, 27, 34, 0.9);
+  color: #c9d1d9;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.arrow-btn:hover {
+  background: #238636;
+  border-color: #238636;
+  color: #fff;
+  transform: scale(1.06);
+}
+
+.arrow-btn:active {
+  background: #2ea043;
+  transform: scale(0.95);
+}
+
+.arrow-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.arrow-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.arrow-axis {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #8b949e;
+  margin-top: 2px;
+}
+
+.arrow-btn:hover .arrow-axis {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Center label in the cross / Z column */
+.arrow-center {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #58a6ff;
+  letter-spacing: 0.1em;
+  background: rgba(13, 17, 23, 0.6);
+  border: 1px solid #21262d;
+  border-radius: 6px;
+  font-family: "Courier New", monospace;
+}
+
+/* ── Compact (small) arrow variants ── */
+.arrow-cross-sm {
+  grid-template-columns: repeat(3, 42px);
+  grid-template-rows: repeat(3, 42px);
+  gap: 3px;
+}
+
+.arrow-btn-sm {
+  width: 42px;
+  height: 42px;
+}
+
+.arrow-btn-sm .arrow-icon { font-size: 1rem; }
+.arrow-btn-sm .arrow-axis { font-size: 0.55rem; }
+
+.arrow-center-sm {
+  width: 42px;
+  height: 42px;
+  font-size: 0.65rem;
+}
+
+.arrow-z-col .arrow-btn-sm { width: 42px; height: 42px; }
